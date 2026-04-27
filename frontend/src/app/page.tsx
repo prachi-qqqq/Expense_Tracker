@@ -66,8 +66,8 @@ function Dashboard() {
               <span className="text-lg font-bold text-white">₹</span>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">Fenmo</h1>
-              <p className="text-xs text-gray-500">Expense Tracker</p>
+              <h1 className="text-xl font-bold text-white">Expense Tracker</h1>
+              <p className="text-xs text-gray-500">Personal Finance</p>
             </div>
           </div>
 

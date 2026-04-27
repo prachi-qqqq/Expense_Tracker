@@ -56,7 +56,7 @@ export default function RegisterPage() {
           </div>
           <h1 className="text-3xl font-bold text-white">Create account</h1>
           <p className="text-gray-400 mt-2">
-            Start tracking your expenses with Fenmo
+            Start tracking your expenses
           </p>
         </div>
 

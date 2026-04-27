@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Fenmo — Expense Tracker",
+  title: "Expense Tracker",
   description:
     "Track your expenses with precision. Production-grade expense tracking with idempotent operations and real-time totals.",
 };
