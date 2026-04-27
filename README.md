@@ -113,7 +113,7 @@ PostgreSQL was chosen over SQLite or an in-memory store for:
 
 - **ACID transactions** — the expense record and idempotency record are written atomically. A crash mid-write cannot produce a half-committed expense without a matching idempotency key.
 - **NUMERIC(10,2)** — native fixed-point decimal type. Floats are never used for money at any layer.
-- **JSONB column** — the idempotency response body is stored as JSONB, allowing the exact original response to be replayed without re-querying the expenses table.
+- **JSON column** — the idempotency response body is stored as JSON (JSONB in the PostgreSQL migration), allowing the exact original response to be replayed without re-querying the expenses table.
 - **CHECK constraint** — `CHECK (amount > 0)` enforced at the database level as a last line of defence.
 
 ### Money Handling
@@ -153,21 +153,24 @@ JWT (HS256) with 60-minute expiry. Passwords are hashed with `bcrypt` directly (
 
 | Decision | Rationale |
 |----------|-----------|
-| **No pagination** | Acceptable for personal-scale data. Cursor-based pagination would be the next addition. |
+| **No pagination** | List is bounded per-user; not a scalability concern at this size. Cursor-based pagination would be the next addition. |
 | **localStorage for JWT** | Simpler than `httpOnly` cookies + CSRF tokens for a timebox exercise. In production, `httpOnly` cookies are safer against XSS. |
-| **SQLite for tests** | Eliminates Docker dependency in CI. PostgreSQL-specific behaviour (JSONB, NUMERIC precision) is covered by the production schema. |
-| **No rate limiting** | Would be added in production via a middleware or API gateway. |
-| **No pagination on GET /expenses** | List is bounded per-user; not a scalability concern at MVP size. |
+| **SQLite for tests** | Eliminates Docker dependency. Tests use SQLAlchemy's generic `JSON` type so idempotency storage works on both SQLite and PostgreSQL. |
+| **No rate limiting** | Would be added in production via middleware or an API gateway. |
 | **No refresh tokens** | Single 60-minute JWT is acceptable for a demo. Production would add token rotation. |
 
 ---
 
-## Intentionally Not Implemented
+## Nice-to-Have: What Was and Was Not Done
 
-- **Total per category** (nice-to-have): the backend already returns a `total` aggregated over the filtered list, so per-category breakdowns are a small addition but were deprioritised.
-- **CSV/PDF export**: out of scope for the timebox.
-- **PWA / offline support**: not required by the acceptance criteria.
-- **CI/CD pipeline**: the repo is straightforward enough that manual deploys are acceptable for the exercise.
+The assignment listed four optional items. Three were completed:
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Basic validation (negative amounts, required date) | ✅ Done | Pydantic v2 on backend, mirrored in `validation.ts` on frontend |
+| A couple of automated tests | ✅ Done | 25 pytest integration tests covering all core flows |
+| Basic error and loading states in UI | ✅ Done | Spinner, disabled inputs, error banners, retry button |
+| Summary view (total per category) | ❌ Not done | `GET /expenses` already returns a `total` for the filtered list. A full per-category breakdown would require a separate aggregation endpoint or frontend grouping — deprioritised in favour of getting the core flows solid. |
 
 ---
 
@@ -212,24 +215,47 @@ pytest -v
 docker-compose exec backend pytest -v
 ```
 
-### Coverage
+### Coverage (25 tests, all passing)
+
+**POST /api/expenses**
 
 | Test | What it verifies |
 |------|-----------------|
-| `test_create_expense` | Happy path — 201, correct fields returned |
-| `test_idempotency_replay` | Same key + same body → 200 with stored response |
-| `test_idempotency_conflict` | Same key + different body → 409 |
-| `test_create_expense_validation` | Negative amount → 422 |
-| `test_list_expenses_empty` | Empty list returns `total: "0"` |
-| `test_list_expenses_category_filter` | Only matching category returned |
-| `test_list_expenses_sort_asc` | Oldest expense first |
-| `test_list_expenses_sort_desc` | Newest expense first (default) |
-| `test_list_expenses_total` | Total matches sum of visible expenses |
-| `test_register` | New user gets JWT |
-| `test_register_duplicate_email` | 409 on duplicate |
-| `test_login_success` | Correct credentials → JWT |
-| `test_login_wrong_password` | 401 on bad credentials |
-| `test_protected_route_no_token` | 403 without Bearer token |
+| `test_create_success_returns_201` | Valid expense → 201, correct fields in response |
+| `test_idempotency_same_key_same_body_replays` | Same key + same body → stored response, no duplicate row |
+| `test_idempotency_same_key_different_body_returns_409` | Same key + different body → 409 Conflict |
+| `test_negative_amount_returns_422` | Negative amount rejected by validation |
+| `test_zero_amount_returns_422` | Zero amount rejected — must be strictly positive |
+| `test_missing_category_returns_422` | Missing required field → 422 |
+| `test_missing_date_returns_422` | Missing date → 422 |
+| `test_missing_idempotency_key_header_returns_400` | Missing required header → 400/422 |
+| `test_unauthenticated_returns_403` | No token → 403 |
+
+**GET /api/expenses**
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_empty_list` | No expenses → empty list, zero total |
+| `test_filter_by_category` | Only expenses matching category are returned |
+| `test_filter_by_category_no_match` | Filter with no matches → empty list |
+| `test_sort_newest_first_by_default` | Default sort → newest date first |
+| `test_sort_date_desc_explicit` | `sort=date_desc` → newest first |
+| `test_sort_date_asc` | `sort=date_asc` → oldest first |
+| `test_total_matches_all_expenses` | Total equals sum of all expenses |
+| `test_total_matches_filtered_expenses` | Total reflects filtered subset only |
+| `test_user_sees_only_own_expenses` | User A cannot see User B's expenses |
+| `test_unauthenticated_returns_403` | No token → 403 |
+
+**Authentication**
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_register_returns_201_with_token` | New user registration → JWT |
+| `test_register_duplicate_email_returns_409` | Duplicate email → 409 |
+| `test_login_valid_credentials_returns_token` | Correct credentials → JWT |
+| `test_login_wrong_password_returns_401` | Wrong password → 401 |
+| `test_login_unknown_email_returns_401` | Unknown email → 401 |
+| `test_register_short_password_returns_422` | Password < 8 chars → 422 |
 
 ---
 
