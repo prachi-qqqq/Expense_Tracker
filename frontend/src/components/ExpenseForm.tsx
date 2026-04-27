@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import type { ExpenseCreate } from "@/types/expense";
 import { api } from "@/lib/api";
+import { validateExpenseForm } from "@/lib/validation";
 
 interface ExpenseFormProps {
   onSuccess: () => void;
@@ -29,25 +30,11 @@ export default function ExpenseForm({ onSuccess }: ExpenseFormProps) {
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      // Prevent double submit
       if (isSubmitting) return;
 
-      // Client-side validation
-      const parsedAmount = parseFloat(amount);
-      if (isNaN(parsedAmount) || parsedAmount <= 0) {
-        setError("Amount must be a positive number");
-        return;
-      }
-      if (!category.trim()) {
-        setError("Category is required");
-        return;
-      }
-      if (category.length > 50) {
-        setError("Category must be 50 characters or less");
-        return;
-      }
-      if (description && description.length > 255) {
-        setError("Description must be 255 characters or less");
+      const validationError = validateExpenseForm(amount, category, description);
+      if (validationError) {
+        setError(validationError);
         return;
       }
 

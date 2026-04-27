@@ -36,6 +36,12 @@ export interface TokenResponse {
   user: User;
 }
 
+export interface ValidationErrorItem {
+  loc: string[];
+  msg: string;
+  type: string;
+}
+
 export interface ApiError {
-  detail: string;
+  detail: string | ValidationErrorItem[];
 }
