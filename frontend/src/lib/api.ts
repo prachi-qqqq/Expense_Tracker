@@ -23,12 +23,7 @@ class ApiClient {
 
   private async handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
-      const errorBody: ApiError = await response.json().catch(() => ({
-        detail: `Request failed with status ${response.status}`,
-      }));
-
       if (response.status === 401) {
-        // Token expired or invalid — clear and redirect
         if (typeof window !== "undefined") {
           localStorage.removeItem("access_token");
           localStorage.removeItem("user");
@@ -36,7 +31,19 @@ class ApiClient {
         }
       }
 
-      throw new Error(errorBody.detail);
+      const errorBody: ApiError = await response.json().catch(() => ({
+        detail: `Request failed with status ${response.status}`,
+      }));
+
+      // FastAPI returns Pydantic validation errors as an array of objects
+      if (Array.isArray(errorBody.detail)) {
+        const messages = (errorBody.detail as Array<{ msg: string; loc?: string[] }>)
+          .map((e) => e.msg)
+          .join("; ");
+        throw new Error(messages);
+      }
+
+      throw new Error(errorBody.detail as string);
     }
     return response.json() as Promise<T>;
   }
