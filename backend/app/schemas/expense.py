@@ -1,8 +1,6 @@
 """Pydantic schemas for expense validation and serialization."""
 
-from __future__ import annotations
-
-from datetime import date, datetime
+from datetime import date as DateType, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
@@ -24,7 +22,7 @@ class ExpenseCreate(BaseModel):
         None, max_length=255,
         description="Optional description",
     )
-    date: date = Field(..., description="Expense date (ISO format)")
+    date: DateType = Field(..., description="Expense date (ISO format)")
 
     @field_validator("amount", mode="before")
     @classmethod
@@ -39,7 +37,7 @@ class ExpenseResponse(BaseModel):
     amount: Decimal
     category: str
     description: str | None
-    date: date
+    date: DateType
     created_at: datetime
     user_id: UUID
 
