@@ -18,26 +18,29 @@ Built for real-world conditions: idempotent API operations, Decimal money arithm
 
 ### Key design decisions
 
-**Idempotent POST** — The biggest correctness risk in an expense tracker is duplicate entries from retries, double-clicks, or page refreshes. Every `POST /expenses` requires an `Idempotency-Key` header (a UUID generated per submission on the frontend). The backend hashes the request body, stores the key + hash + response atomically with the expense, and replays the stored response on retries. This makes the endpoint safe to call multiple times without side effects.
-
-**Decimal money, not float** — Floats cannot represent most decimal fractions exactly. All money values use Python `decimal.Decimal` in the backend (rounded via `ROUND_HALF_UP`), `NUMERIC(10,2)` in PostgreSQL, and are serialised as strings over the wire to avoid JSON number precision loss. The frontend formats amounts using `Intl.NumberFormat` and never does arithmetic on them.
-
-**PostgreSQL over SQLite** — ACID transactions are necessary so the expense row and the idempotency record are always written together or not at all. SQLite was considered but ruled out because it lacks native JSONB, has weaker concurrency guarantees, and is harder to rely on for financial data in production.
-
-**Thin routes, logic in services** — Routes only handle HTTP concerns (auth, validation, response codes). All business logic lives in `services/`, making it independently testable.
+| Decision | Why |
+|----------|-----|
+| **Idempotent POST** | The biggest correctness risk is duplicate entries from retries, double-clicks, or refreshes. Every `POST /expenses` takes an `Idempotency-Key` header; the backend stores the key + response atomically and replays it on retries — no duplicates regardless of how many times the client retries. |
+| **Decimal, not float** | Floats cannot represent most decimal fractions exactly. Money uses `decimal.Decimal` in Python, `NUMERIC(10,2)` in PostgreSQL, and is sent as a string over the wire to avoid JSON precision loss. |
+| **PostgreSQL** | ACID transactions ensure the expense row and idempotency record are always written together or not at all. Also provides `NUMERIC` for exact money storage and enforces a `CHECK (amount > 0)` constraint at the DB level. |
+| **Thin routes, logic in services** | Routes handle only HTTP concerns. All business logic lives in `services/` so it can be tested directly without going through HTTP. |
 
 ### Trade-offs made because of the timebox
 
-- **No pagination** — the expense list is unbounded. For a personal tool with one user's data this is acceptable; cursor-based pagination would be the first thing to add at scale.
-- **localStorage for JWT** — simpler than `httpOnly` cookies + CSRF protection. A production app would use `httpOnly` cookies to protect against XSS token theft.
-- **No token refresh** — access tokens expire after 60 minutes and the user is redirected to login. A refresh token flow was skipped in favour of spending time on correctness features.
-- **No rate limiting** — any user can hammer the API. Would be added via middleware or an API gateway before going to production.
+| Trade-off | What was skipped and why |
+|-----------|--------------------------|
+| **No pagination** | The list is unbounded per user. Acceptable at personal scale; cursor-based pagination would be the next addition. |
+| **localStorage for JWT** | Simpler than `httpOnly` cookies + CSRF tokens. A production app would use `httpOnly` cookies to protect against XSS. |
+| **No token refresh** | Tokens expire after 60 min and redirect to login. A refresh flow was deprioritised in favour of correctness features. |
+| **No rate limiting** | Would be added via middleware or an API gateway before real production use. |
 
 ### Intentionally not done
 
-- **Per-user expense categories as a managed resource** — categories are free-text strings. There is no `POST /categories` endpoint. This keeps the data model simple; a managed category list would add normalisation complexity without materially improving the core feature.
-- **Email verification** — registration accepts any email string. Adding a verification flow was out of scope for the timebox.
-- **CI/CD pipeline** — deploys are manual (push to GitHub → Render/Vercel auto-deploy). A GitHub Actions workflow with test gating would be the obvious next addition.
+| Item | Reason |
+|------|--------|
+| **Managed category resource** | Categories are free-text strings. A `POST /categories` endpoint would add normalisation overhead without improving the core feature. |
+| **Email verification** | Out of scope — registration accepts any valid email format. |
+| **CI/CD pipeline** | Pushes to `main` auto-deploy via Render and Vercel hooks, which is sufficient here. A GitHub Actions workflow with test gating would be the obvious next step. |
 
 ---
 
