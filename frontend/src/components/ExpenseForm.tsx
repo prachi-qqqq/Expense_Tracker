@@ -113,7 +113,8 @@ export default function ExpenseForm({ onSuccess }: ExpenseFormProps) {
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
               required
-              className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
+              disabled={isSubmitting}
+              className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -133,7 +134,8 @@ export default function ExpenseForm({ onSuccess }: ExpenseFormProps) {
               placeholder="e.g. Food, Transport"
               maxLength={50}
               required
-              className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
+              disabled={isSubmitting}
+              className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
         </div>
@@ -153,7 +155,8 @@ export default function ExpenseForm({ onSuccess }: ExpenseFormProps) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Optional details..."
             maxLength={255}
-            className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
+            disabled={isSubmitting}
+            className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -171,7 +174,8 @@ export default function ExpenseForm({ onSuccess }: ExpenseFormProps) {
             value={date}
             onChange={(e) => setDate(e.target.value)}
             required
-            className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
+            disabled={isSubmitting}
+            className="w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
 
