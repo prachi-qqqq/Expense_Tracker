@@ -1,5 +1,7 @@
 """Pydantic schemas for expense validation and serialization."""
 
+from __future__ import annotations
+
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
@@ -12,24 +14,22 @@ class ExpenseCreate(BaseModel):
 
     amount: Decimal = Field(
         ..., gt=0, max_digits=10, decimal_places=2,
-        description="Expense amount (must be positive)"
+        description="Expense amount (must be positive)",
     )
+    category: str = Field(
+        ..., min_length=1, max_length=50,
+        description="Expense category",
+    )
+    description: str | None = Field(
+        None, max_length=255,
+        description="Optional description",
+    )
+    date: date = Field(..., description="Expense date (ISO format)")
 
     @field_validator("amount", mode="before")
     @classmethod
     def round_amount(cls, v: Decimal) -> Decimal:
         return Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    category: str = Field(
-        ..., min_length=1, max_length=50,
-        description="Expense category"
-    )
-    description: str | None = Field(
-        None, max_length=255,
-        description="Optional description"
-    )
-    date: date = Field(
-        ..., description="Expense date (ISO format)"
-    )
 
 
 class ExpenseResponse(BaseModel):
