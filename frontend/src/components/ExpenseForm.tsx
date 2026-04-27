@@ -46,7 +46,7 @@ export default function ExpenseForm({ onSuccess }: ExpenseFormProps) {
       const idempotencyKey = crypto.randomUUID();
 
       const data: ExpenseCreate = {
-        amount: parsedAmount.toFixed(2),
+        amount: parseFloat(amount).toFixed(2),
         category: category.trim(),
         date,
       };
