@@ -6,6 +6,7 @@ import ExpenseForm from "@/components/ExpenseForm";
 import ExpenseList from "@/components/ExpenseList";
 import Filters from "@/components/Filters";
 import TotalBar from "@/components/TotalBar";
+import CategorySummary from "@/components/CategorySummary";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import type { Expense } from "@/types/expense";
@@ -90,9 +91,10 @@ function Dashboard() {
       {/* Main Content */}
       <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Form */}
+          {/* Left Column: Form + Category Summary */}
           <div className="lg:col-span-1 space-y-6">
             <ExpenseForm onSuccess={fetchExpenses} />
+            <CategorySummary expenses={expenses} isLoading={isLoading} />
           </div>
 
           {/* Right Column: List + Filters */}

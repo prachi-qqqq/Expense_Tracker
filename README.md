@@ -2,10 +2,10 @@
 
 A full-stack personal expense tracking application built with **FastAPI**, **PostgreSQL**, and **Next.js**.
 
-Designed for real-world conditions: idempotent API operations, Decimal money arithmetic, JWT authentication, and resilient UI behaviour under slow or failed network requests.
+Built for real-world conditions: idempotent API operations, Decimal money arithmetic, JWT-based authentication, and a resilient UI that handles slow networks, failed requests, and duplicate submissions gracefully.
 
-**Live:** https://expense-tracker-taupe-rho.vercel.app  
-**API:** https://expense-tracker-tr3i.onrender.com/docs
+**Live:** https://expense-tracker-taupe-rho.vercel.app
+**API Docs:** https://expense-tracker-tr3i.onrender.com/docs
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=flat&logo=postgresql&logoColor=white)
@@ -14,21 +14,16 @@ Designed for real-world conditions: idempotent API operations, Decimal money ari
 
 ---
 
-## What Was Built
+## Features
 
-### Acceptance Criteria Coverage
-
-| # | Requirement | Status |
-|---|-------------|--------|
-| 1 | Create expense with amount, category, description, date | ✅ |
-| 2 | View a list of expenses | ✅ |
-| 3 | Filter expenses by category | ✅ |
-| 4 | Sort expenses by date (newest first) | ✅ |
-| 5 | Display total of currently visible expenses | ✅ |
-| + | Idempotent POST (safe retries / double-submit) | ✅ |
-| + | Backend + frontend validation | ✅ |
-| + | Loading and error states in UI | ✅ |
-| + | Automated backend test suite (pytest) | ✅ |
+- Add expenses with amount, category, description, and date
+- View all expenses in a sortable, filterable table
+- Filter by category; sort by date (newest or oldest first)
+- Total of currently visible expenses updates with filters
+- Per-category spending breakdown with proportional bars
+- Idempotent expense creation — safe to retry or double-submit
+- JWT authentication — each user sees only their own data
+- Full input validation on both frontend and backend
 
 ---
 
@@ -56,7 +51,7 @@ docker-compose up --build
 Expense_Tracker/
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # Routes (thin) + dependency injection
+│   │   ├── api/          # Routes + dependency injection
 │   │   ├── core/         # Config (env vars), structured logging
 │   │   ├── db/           # Engine, session factory, declarative base
 │   │   ├── models/       # SQLAlchemy ORM models
@@ -64,14 +59,14 @@ Expense_Tracker/
 │   │   ├── services/     # Business logic (expense, auth)
 │   │   └── utils/        # Idempotency key hashing
 │   ├── alembic/          # Database migrations
-│   ├── tests/            # pytest integration test suite
+│   ├── tests/            # pytest integration test suite (25 tests)
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── start.sh          # Runs migrations then starts uvicorn
 ├── frontend/
 │   └── src/
 │       ├── app/          # Next.js App Router pages
-│       ├── components/   # ExpenseForm, ExpenseList, Filters, TotalBar
+│       ├── components/   # ExpenseForm, ExpenseList, Filters, TotalBar, CategorySummary
 │       ├── contexts/     # AuthContext — JWT + localStorage
 │       ├── lib/          # API client, validation utilities
 │       └── types/        # TypeScript interfaces
@@ -91,7 +86,7 @@ POST /api/auth/register   { email, password, name } → { access_token, user }
 POST /api/auth/login      { email, password }        → { access_token, user }
 ```
 
-### Expenses (all require `Authorization: Bearer <token>`)
+### Expenses (require `Authorization: Bearer <token>`)
 
 ```
 POST /api/expenses
@@ -109,7 +104,7 @@ GET /api/expenses?category=Food&sort=date_desc
 
 ### Persistence: PostgreSQL
 
-PostgreSQL was chosen over SQLite or an in-memory store for:
+PostgreSQL was chosen for financial data because it provides:
 
 - **ACID transactions** — the expense record and idempotency record are written atomically. A crash mid-write cannot produce a half-committed expense without a matching idempotency key.
 - **NUMERIC(10,2)** — native fixed-point decimal type. Floats are never used for money at any layer.
@@ -129,7 +124,7 @@ Floating-point arithmetic is not used for money at any layer:
 
 ### Idempotency on POST /expenses
 
-The assignment explicitly calls out unreliable networks, browser refreshes, and retries. The `POST /api/expenses` endpoint is made fully idempotent via a client-provided `Idempotency-Key` header:
+The `POST /api/expenses` endpoint is fully idempotent via a client-provided `Idempotency-Key` header:
 
 1. The frontend generates a `crypto.randomUUID()` per submission attempt.
 2. The backend hashes the request body using stable JSON serialisation (sorted keys) + SHA-256.
@@ -145,32 +140,7 @@ This means:
 
 ### Authentication
 
-JWT (HS256) with 60-minute expiry. Passwords are hashed with `bcrypt` directly (not through passlib, which is abandoned and incompatible with bcrypt ≥ 4.x). Tokens are stored in `localStorage`; a 401 response auto-redirects to the login page. Each user only sees their own expenses — the `user_id` foreign key is set from the verified JWT, never from the request body.
-
----
-
-## Trade-offs Made
-
-| Decision | Rationale |
-|----------|-----------|
-| **No pagination** | List is bounded per-user; not a scalability concern at this size. Cursor-based pagination would be the next addition. |
-| **localStorage for JWT** | Simpler than `httpOnly` cookies + CSRF tokens for a timebox exercise. In production, `httpOnly` cookies are safer against XSS. |
-| **SQLite for tests** | Eliminates Docker dependency. Tests use SQLAlchemy's generic `JSON` type so idempotency storage works on both SQLite and PostgreSQL. |
-| **No rate limiting** | Would be added in production via middleware or an API gateway. |
-| **No refresh tokens** | Single 60-minute JWT is acceptable for a demo. Production would add token rotation. |
-
----
-
-## Nice-to-Have: What Was and Was Not Done
-
-The assignment listed four optional items. Three were completed:
-
-| Item | Status | Notes |
-|------|--------|-------|
-| Basic validation (negative amounts, required date) | ✅ Done | Pydantic v2 on backend, mirrored in `validation.ts` on frontend |
-| A couple of automated tests | ✅ Done | 25 pytest integration tests covering all core flows |
-| Basic error and loading states in UI | ✅ Done | Spinner, disabled inputs, error banners, retry button |
-| Summary view (total per category) | ❌ Not done | `GET /expenses` already returns a `total` for the filtered list. A full per-category breakdown would require a separate aggregation endpoint or frontend grouping — deprioritised in favour of getting the core flows solid. |
+JWT (HS256) with 60-minute expiry. Passwords are hashed with `bcrypt` directly. Tokens are stored in `localStorage`; any 401 response auto-redirects to the login page. The `user_id` on every expense is set from the verified JWT — never from the request body — so users are strictly isolated.
 
 ---
 
@@ -178,13 +148,13 @@ The assignment listed four optional items. Three were completed:
 
 | Scenario | How it is handled |
 |----------|------------------|
-| User double-clicks Submit | `isSubmitting` state disables button and all form inputs immediately |
+| User double-clicks Submit | `isSubmitting` disables button and all form inputs immediately |
 | Network retry of completed POST | Idempotency key returns the stored response, no duplicate created |
-| Page refresh after submit | Data is persisted in PostgreSQL; re-fetch on mount shows the expense |
-| Slow API response | Spinner shown, form inputs disabled, button shows "Adding..." |
+| Page refresh after submit | Data persisted in PostgreSQL; re-fetched on mount |
+| Slow API response | Spinner shown, inputs disabled, button shows "Adding..." |
 | Failed API call | Error banner shown with a Retry button |
-| JWT expiry | Any 401 response clears localStorage and redirects to `/login` |
-| FastAPI validation error (422) | Array of Pydantic error messages joined and shown in the form |
+| JWT expiry | Any 401 clears localStorage and redirects to `/login` |
+| Pydantic validation error (422) | Error messages extracted and shown in the form |
 
 ---
 
@@ -198,8 +168,8 @@ The assignment listed four optional items. Three were completed:
 - DB `CHECK (amount > 0)` and `NOT NULL` constraints as a final backstop
 
 **Frontend (`src/lib/validation.ts`):**
-- Mirrors backend rules so the user sees errors immediately, before a round-trip
-- Validation runs on submit; form inputs are disabled during in-flight requests
+- Mirrors backend rules so the user sees errors immediately, without a round-trip
+- Inputs are disabled during in-flight requests to prevent concurrent submissions
 
 ---
 
@@ -215,7 +185,7 @@ pytest -v
 docker-compose exec backend pytest -v
 ```
 
-### Coverage (25 tests, all passing)
+**25 tests, all passing.**
 
 **POST /api/expenses**
 
@@ -224,11 +194,11 @@ docker-compose exec backend pytest -v
 | `test_create_success_returns_201` | Valid expense → 201, correct fields in response |
 | `test_idempotency_same_key_same_body_replays` | Same key + same body → stored response, no duplicate row |
 | `test_idempotency_same_key_different_body_returns_409` | Same key + different body → 409 Conflict |
-| `test_negative_amount_returns_422` | Negative amount rejected by validation |
+| `test_negative_amount_returns_422` | Negative amount rejected |
 | `test_zero_amount_returns_422` | Zero amount rejected — must be strictly positive |
 | `test_missing_category_returns_422` | Missing required field → 422 |
 | `test_missing_date_returns_422` | Missing date → 422 |
-| `test_missing_idempotency_key_header_returns_400` | Missing required header → 400/422 |
+| `test_missing_idempotency_key_header_returns_400` | Missing required header → 400 |
 | `test_unauthenticated_returns_403` | No token → 403 |
 
 **GET /api/expenses**
@@ -236,7 +206,7 @@ docker-compose exec backend pytest -v
 | Test | What it verifies |
 |------|-----------------|
 | `test_empty_list` | No expenses → empty list, zero total |
-| `test_filter_by_category` | Only expenses matching category are returned |
+| `test_filter_by_category` | Only expenses matching category returned |
 | `test_filter_by_category_no_match` | Filter with no matches → empty list |
 | `test_sort_newest_first_by_default` | Default sort → newest date first |
 | `test_sort_date_desc_explicit` | `sort=date_desc` → newest first |
@@ -259,10 +229,22 @@ docker-compose exec backend pytest -v
 
 ---
 
+## Trade-offs
+
+| Decision | Rationale |
+|----------|-----------|
+| **No pagination** | List is bounded per-user; not a scalability concern at this size. Cursor-based pagination would be the next addition. |
+| **localStorage for JWT** | Simpler than `httpOnly` cookies + CSRF tokens. In production, `httpOnly` cookies are safer against XSS. |
+| **SQLite for tests** | Eliminates Docker dependency. Tests use SQLAlchemy's generic `JSON` type so idempotency storage works on both SQLite and PostgreSQL. |
+| **No rate limiting** | Would be added in production via middleware or an API gateway. |
+| **No refresh tokens** | Single 60-minute JWT is acceptable here. Production would add token rotation. |
+
+---
+
 ## Security
 
 - **SQL injection** — prevented by SQLAlchemy ORM parameterised queries
-- **Password hashing** — `bcrypt` with per-password salt (cost factor 12)
+- **Password hashing** — `bcrypt` with per-password salt
 - **Input validation** — Pydantic enforces types, lengths, and ranges at the API boundary
 - **CORS** — restricted to the configured frontend origin only
 - **No stack traces in responses** — global exception handler returns generic 500 messages
@@ -275,7 +257,7 @@ docker-compose exec backend pytest -v
 | Variable | Service | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | Backend | PostgreSQL connection string (`postgresql+psycopg://...`) |
-| `SECRET_KEY` | Backend | JWT signing secret — use a long random string in production |
+| `SECRET_KEY` | Backend | JWT signing secret |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Backend | Token lifetime (default: 60) |
 | `CORS_ORIGINS` | Backend | Comma-separated allowed origins |
 | `POSTGRES_USER` | DB | PostgreSQL username |
@@ -287,17 +269,17 @@ docker-compose exec backend pytest -v
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Backend framework | FastAPI 0.111 | Type-safe, async-capable, auto OpenAPI docs, excellent DI |
-| ORM | SQLAlchemy 2.0 | Typed mapped columns, modern Pythonic API |
-| Migrations | Alembic | Schema versioning, reproducible deploys |
-| Database | PostgreSQL 15 | ACID, NUMERIC type, JSONB |
-| DB driver | psycopg 3 | Native async support, binary protocol |
-| Validation | Pydantic v2 | Fast, declarative, integrates with FastAPI |
-| Auth | python-jose + bcrypt | Standard JWT + safe password hashing |
-| Frontend | Next.js 16 + React 19 | App Router, TypeScript-first, Vercel-native |
-| Styling | Tailwind CSS v4 | Utility-first, no runtime overhead |
-| Containerisation | Docker + Compose | Reproducible local environment |
-| Backend hosting | Render | Docker-native deploys, managed PostgreSQL |
-| Frontend hosting | Vercel | Zero-config Next.js, global CDN |
+| Layer | Technology |
+|-------|-----------|
+| Backend framework | FastAPI 0.111 |
+| ORM | SQLAlchemy 2.0 |
+| Migrations | Alembic |
+| Database | PostgreSQL 15 |
+| DB driver | psycopg 3 |
+| Validation | Pydantic v2 |
+| Auth | python-jose + bcrypt |
+| Frontend | Next.js 16 + React 19 + TypeScript |
+| Styling | Tailwind CSS v4 |
+| Containerisation | Docker + Compose |
+| Backend hosting | Render |
+| Frontend hosting | Vercel |
