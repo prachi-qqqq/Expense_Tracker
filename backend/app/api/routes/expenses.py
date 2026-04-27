@@ -1,11 +1,10 @@
 """Expense routes — create and list expenses."""
 
-
+import json
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.orm import Session
-from fastapi import Depends
 
 from app.api.dependencies import CurrentUser
 from app.db.session import get_db
@@ -52,7 +51,6 @@ def create(
             detail="An unexpected error occurred",
         )
 
-    import json
     return Response(
         content=json.dumps(response_body, default=str),
         status_code=status_code,
