@@ -1,5 +1,6 @@
 """Expense routes — create and list expenses."""
 
+
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Response, status
