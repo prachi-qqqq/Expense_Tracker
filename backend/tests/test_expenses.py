@@ -1,248 +1,272 @@
-"""Tests for expense creation (idempotency) and listing (filtering)."""
+"""Integration tests for expense creation, listing, and authentication."""
 
 import uuid
 
 from fastapi.testclient import TestClient
 
 
-class TestCreateExpense:
-    """Tests for POST /api/expenses with idempotency."""
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    def test_create_expense_success(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Creating an expense with valid data returns 201."""
-        key = str(uuid.uuid4())
-        response = client.post(
-            "/api/expenses",
-            json={
-                "amount": "150.50",
-                "category": "Food",
-                "description": "Lunch",
-                "date": "2024-06-15",
-            },
-            headers={**auth_headers, "Idempotency-Key": key},
-        )
-        assert response.status_code == 201
-        data = response.json()
+def _make_expense(
+    client: TestClient,
+    headers: dict,
+    amount: str = "100.00",
+    category: str = "Food",
+    date: str = "2024-06-15",
+    description: str | None = None,
+) -> dict:
+    """Create an expense and return the response JSON."""
+    payload: dict = {"amount": amount, "category": category, "date": date}
+    if description:
+        payload["description"] = description
+    resp = client.post(
+        "/api/expenses",
+        json=payload,
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+    )
+    return resp
+
+
+def _register_and_login(client: TestClient, email: str) -> dict:
+    """Register a fresh user and return auth headers."""
+    resp = client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "testpass123", "name": "Test"},
+    )
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/expenses — creation and idempotency
+# ---------------------------------------------------------------------------
+
+class TestCreateExpense:
+
+    def test_create_success_returns_201(self, client, auth_headers):
+        """Valid expense returns 201 with correct fields."""
+        resp = _make_expense(client, auth_headers, amount="150.50", category="Food")
+        assert resp.status_code == 201
+        data = resp.json()
         assert data["amount"] == "150.50"
         assert data["category"] == "Food"
+        assert "id" in data
+        assert "created_at" in data
 
-    def test_idempotency_same_key_same_body(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Same Idempotency-Key + same body returns the same response."""
+    def test_idempotency_same_key_same_body_replays(self, client, auth_headers):
+        """Same key + same body returns the same response (no duplicate row)."""
         key = str(uuid.uuid4())
-        payload = {
-            "amount": "200.00",
-            "category": "Transport",
-            "description": "Taxi",
-            "date": "2024-06-15",
-        }
+        payload = {"amount": "200.00", "category": "Transport", "date": "2024-06-15"}
         headers = {**auth_headers, "Idempotency-Key": key}
 
-        resp1 = client.post("/api/expenses", json=payload, headers=headers)
-        resp2 = client.post("/api/expenses", json=payload, headers=headers)
+        r1 = client.post("/api/expenses", json=payload, headers=headers)
+        r2 = client.post("/api/expenses", json=payload, headers=headers)
 
-        assert resp1.status_code == 201
-        # Second call should return stored response (could be 200 or 201)
-        assert resp2.status_code in (200, 201)
-        assert resp1.json()["id"] == resp2.json()["id"]
+        assert r1.status_code == 201
+        assert r2.status_code in (200, 201)
+        assert r1.json()["id"] == r2.json()["id"]
 
-    def test_idempotency_same_key_different_body(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Same Idempotency-Key + different body returns 409 Conflict."""
+        # Only one expense should exist
+        listing = client.get("/api/expenses", headers=auth_headers).json()
+        assert listing["count"] == 1
+
+    def test_idempotency_same_key_different_body_returns_409(self, client, auth_headers):
+        """Same key + different body → 409 Conflict."""
         key = str(uuid.uuid4())
         headers = {**auth_headers, "Idempotency-Key": key}
 
-        client.post(
-            "/api/expenses",
-            json={
-                "amount": "100.00",
-                "category": "Food",
-                "date": "2024-06-15",
-            },
-            headers=headers,
-        )
+        client.post("/api/expenses",
+                    json={"amount": "100.00", "category": "Food", "date": "2024-06-15"},
+                    headers=headers)
 
-        resp2 = client.post(
-            "/api/expenses",
-            json={
-                "amount": "999.00",
-                "category": "Shopping",
-                "date": "2024-07-01",
-            },
-            headers=headers,
-        )
-        assert resp2.status_code == 409
+        resp = client.post("/api/expenses",
+                           json={"amount": "999.00", "category": "Shopping", "date": "2024-07-01"},
+                           headers=headers)
+        assert resp.status_code == 409
 
-    def test_create_expense_invalid_amount(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Amount <= 0 should fail validation."""
-        key = str(uuid.uuid4())
-        response = client.post(
-            "/api/expenses",
-            json={
-                "amount": "-10.00",
-                "category": "Food",
-                "date": "2024-06-15",
-            },
-            headers={**auth_headers, "Idempotency-Key": key},
-        )
-        assert response.status_code == 422
+    def test_negative_amount_returns_422(self, client, auth_headers):
+        """Negative amount is rejected by validation."""
+        resp = _make_expense(client, auth_headers, amount="-10.00")
+        assert resp.status_code == 422
 
-    def test_create_expense_missing_fields(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Missing required fields should fail validation."""
-        key = str(uuid.uuid4())
-        response = client.post(
-            "/api/expenses",
-            json={"amount": "50.00"},
-            headers={**auth_headers, "Idempotency-Key": key},
-        )
-        assert response.status_code == 422
+    def test_zero_amount_returns_422(self, client, auth_headers):
+        """Zero amount is rejected — must be strictly positive."""
+        resp = _make_expense(client, auth_headers, amount="0.00")
+        assert resp.status_code == 422
 
+    def test_missing_category_returns_422(self, client, auth_headers):
+        """Missing required field returns 422."""
+        resp = client.post(
+            "/api/expenses",
+            json={"amount": "50.00", "date": "2024-06-15"},
+            headers={**auth_headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+        assert resp.status_code == 422
+
+    def test_missing_date_returns_422(self, client, auth_headers):
+        """Missing date returns 422."""
+        resp = client.post(
+            "/api/expenses",
+            json={"amount": "50.00", "category": "Food"},
+            headers={**auth_headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+        assert resp.status_code == 422
+
+    def test_missing_idempotency_key_header_returns_400(self, client, auth_headers):
+        """Missing Idempotency-Key header returns 400 or 422."""
+        resp = client.post(
+            "/api/expenses",
+            json={"amount": "50.00", "category": "Food", "date": "2024-06-15"},
+            headers=auth_headers,
+        )
+        assert resp.status_code in (400, 422)
+
+    def test_unauthenticated_returns_403(self, client):
+        """No token → 403."""
+        resp = client.post(
+            "/api/expenses",
+            json={"amount": "50.00", "category": "Food", "date": "2024-06-15"},
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+        )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# GET /api/expenses — listing, filtering, sorting, totals
+# ---------------------------------------------------------------------------
 
 class TestListExpenses:
-    """Tests for GET /api/expenses with filtering."""
 
-    def _create_expense(
-        self,
-        client: TestClient,
-        headers: dict[str, str],
-        amount: str,
-        category: str,
-        date: str,
-    ) -> None:
-        """Helper to create an expense."""
-        key = str(uuid.uuid4())
-        client.post(
-            "/api/expenses",
-            json={
-                "amount": amount,
-                "category": category,
-                "date": date,
-            },
-            headers={**headers, "Idempotency-Key": key},
-        )
-
-    def test_list_expenses_empty(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Listing with no expenses returns empty list."""
-        response = client.get("/api/expenses", headers=auth_headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["count"] == 0
+    def test_empty_list(self, client, auth_headers):
+        """No expenses returns empty list with zero total."""
+        resp = client.get("/api/expenses", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
         assert data["expenses"] == []
+        assert data["count"] == 0
 
-    def test_list_expenses_filter_by_category(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Filtering by category returns only matching expenses."""
-        self._create_expense(client, auth_headers, "100.00", "Food", "2024-06-15")
-        self._create_expense(client, auth_headers, "50.00", "Transport", "2024-06-16")
-        self._create_expense(client, auth_headers, "75.00", "Food", "2024-06-17")
+    def test_filter_by_category(self, client, auth_headers):
+        """Only expenses matching the category are returned."""
+        _make_expense(client, auth_headers, amount="100.00", category="Food")
+        _make_expense(client, auth_headers, amount="50.00", category="Transport")
+        _make_expense(client, auth_headers, amount="75.00", category="Food")
 
-        response = client.get(
-            "/api/expenses?category=Food", headers=auth_headers
-        )
-        data = response.json()
+        resp = client.get("/api/expenses?category=Food", headers=auth_headers)
+        data = resp.json()
         assert data["count"] == 2
         assert all(e["category"] == "Food" for e in data["expenses"])
 
-    def test_list_expenses_sort_newest_first(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Default sort returns newest expenses first."""
-        self._create_expense(client, auth_headers, "100.00", "Food", "2024-01-01")
-        self._create_expense(client, auth_headers, "200.00", "Food", "2024-12-31")
+    def test_filter_by_category_no_match(self, client, auth_headers):
+        """Filtering by a category with no expenses returns empty list."""
+        _make_expense(client, auth_headers, category="Food")
 
-        response = client.get("/api/expenses", headers=auth_headers)
-        data = response.json()
-        dates = [e["date"] for e in data["expenses"]]
+        resp = client.get("/api/expenses?category=Shopping", headers=auth_headers)
+        data = resp.json()
+        assert data["count"] == 0
+        assert data["expenses"] == []
+
+    def test_sort_newest_first_by_default(self, client, auth_headers):
+        """Default sort returns newest expense first."""
+        _make_expense(client, auth_headers, amount="100.00", date="2024-01-01")
+        _make_expense(client, auth_headers, amount="200.00", date="2024-12-31")
+
+        resp = client.get("/api/expenses", headers=auth_headers)
+        dates = [e["date"] for e in resp.json()["expenses"]]
         assert dates == sorted(dates, reverse=True)
 
-    def test_list_expenses_total_matches_visible(
-        self, client: TestClient, auth_headers: dict[str, str]
-    ) -> None:
-        """Total should match the sum of visible (filtered) expenses."""
-        self._create_expense(client, auth_headers, "100.00", "Food", "2024-06-15")
-        self._create_expense(client, auth_headers, "50.00", "Transport", "2024-06-16")
+    def test_sort_date_desc_explicit(self, client, auth_headers):
+        """sort=date_desc returns newest first."""
+        _make_expense(client, auth_headers, date="2024-03-01")
+        _make_expense(client, auth_headers, date="2024-09-01")
 
-        # Total for all
-        response = client.get("/api/expenses", headers=auth_headers)
-        assert response.json()["total"] == "150.00"
+        resp = client.get("/api/expenses?sort=date_desc", headers=auth_headers)
+        dates = [e["date"] for e in resp.json()["expenses"]]
+        assert dates == sorted(dates, reverse=True)
 
-        # Total for Food only
-        response = client.get("/api/expenses?category=Food", headers=auth_headers)
-        assert response.json()["total"] == "100.00"
+    def test_sort_date_asc(self, client, auth_headers):
+        """sort=date_asc returns oldest first."""
+        _make_expense(client, auth_headers, date="2024-09-01")
+        _make_expense(client, auth_headers, date="2024-03-01")
 
+        resp = client.get("/api/expenses?sort=date_asc", headers=auth_headers)
+        dates = [e["date"] for e in resp.json()["expenses"]]
+        assert dates == sorted(dates)
+
+    def test_total_matches_all_expenses(self, client, auth_headers):
+        """Total equals sum of all expenses when no filter applied."""
+        _make_expense(client, auth_headers, amount="100.00", category="Food")
+        _make_expense(client, auth_headers, amount="50.00", category="Transport")
+
+        resp = client.get("/api/expenses", headers=auth_headers)
+        assert resp.json()["total"] == "150.00"
+
+    def test_total_matches_filtered_expenses(self, client, auth_headers):
+        """Total reflects only the filtered subset, not all expenses."""
+        _make_expense(client, auth_headers, amount="100.00", category="Food")
+        _make_expense(client, auth_headers, amount="50.00", category="Transport")
+
+        resp = client.get("/api/expenses?category=Food", headers=auth_headers)
+        assert resp.json()["total"] == "100.00"
+
+    def test_user_sees_only_own_expenses(self, client):
+        """User A cannot see User B's expenses."""
+        headers_a = _register_and_login(client, "user_a@example.com")
+        headers_b = _register_and_login(client, "user_b@example.com")
+
+        _make_expense(client, headers_a, amount="300.00", category="Food")
+
+        resp = client.get("/api/expenses", headers=headers_b)
+        assert resp.json()["count"] == 0
+
+    def test_unauthenticated_returns_403(self, client):
+        """No token → 403."""
+        assert client.get("/api/expenses").status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
 
 class TestAuth:
-    """Tests for authentication endpoints."""
 
-    def test_register_success(self, client: TestClient) -> None:
-        """Registration with valid data returns 201 + token."""
-        response = client.post(
+    def test_register_returns_201_with_token(self, client):
+        resp = client.post(
             "/api/auth/register",
-            json={
-                "email": "new@example.com",
-                "password": "securepass123",
-                "name": "New User",
-            },
+            json={"email": "new@example.com", "password": "securepass123", "name": "New User"},
         )
-        assert response.status_code == 201
-        assert "access_token" in response.json()
+        assert resp.status_code == 201
+        assert "access_token" in resp.json()
 
-    def test_register_duplicate_email(self, client: TestClient) -> None:
-        """Registration with existing email returns 409."""
-        payload = {
-            "email": "dup@example.com",
-            "password": "securepass123",
-            "name": "User",
-        }
+    def test_register_duplicate_email_returns_409(self, client):
+        payload = {"email": "dup@example.com", "password": "securepass123", "name": "User"}
         client.post("/api/auth/register", json=payload)
-        response = client.post("/api/auth/register", json=payload)
-        assert response.status_code == 409
+        resp = client.post("/api/auth/register", json=payload)
+        assert resp.status_code == 409
 
-    def test_login_success(self, client: TestClient) -> None:
-        """Login with valid credentials returns a token."""
-        client.post(
-            "/api/auth/register",
-            json={
-                "email": "login@example.com",
-                "password": "securepass123",
-                "name": "Login User",
-            },
-        )
-        response = client.post(
-            "/api/auth/login",
-            json={"email": "login@example.com", "password": "securepass123"},
-        )
-        assert response.status_code == 200
-        assert "access_token" in response.json()
+    def test_login_valid_credentials_returns_token(self, client):
+        client.post("/api/auth/register",
+                    json={"email": "login@example.com", "password": "securepass123", "name": "User"})
+        resp = client.post("/api/auth/login",
+                           json={"email": "login@example.com", "password": "securepass123"})
+        assert resp.status_code == 200
+        assert "access_token" in resp.json()
 
-    def test_login_wrong_password(self, client: TestClient) -> None:
-        """Login with wrong password returns 401."""
-        client.post(
-            "/api/auth/register",
-            json={
-                "email": "wrong@example.com",
-                "password": "securepass123",
-                "name": "User",
-            },
-        )
-        response = client.post(
-            "/api/auth/login",
-            json={"email": "wrong@example.com", "password": "badpassword"},
-        )
-        assert response.status_code == 401
+    def test_login_wrong_password_returns_401(self, client):
+        client.post("/api/auth/register",
+                    json={"email": "wrong@example.com", "password": "securepass123", "name": "User"})
+        resp = client.post("/api/auth/login",
+                           json={"email": "wrong@example.com", "password": "badpassword"})
+        assert resp.status_code == 401
 
-    def test_protected_route_no_token(self, client: TestClient) -> None:
-        """Accessing expenses without a token returns 403."""
-        response = client.get("/api/expenses")
-        assert response.status_code == 403
+    def test_login_unknown_email_returns_401(self, client):
+        resp = client.post("/api/auth/login",
+                           json={"email": "nobody@example.com", "password": "anything"})
+        assert resp.status_code == 401
+
+    def test_register_short_password_returns_422(self, client):
+        """Password under 8 characters is rejected."""
+        resp = client.post("/api/auth/register",
+                           json={"email": "short@example.com", "password": "abc", "name": "User"})
+        assert resp.status_code == 422
